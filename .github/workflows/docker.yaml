@@ -1,0 +1,70 @@
+name: Docker CI
+
+on:
+  workflow_call:
+    inputs:
+      aws-region:
+        type: string
+        required: false
+        default: sa-east-1
+      dockerfile:
+        type: string
+        required: false
+        default: 'Dockerfile'
+      build-args:
+        type: string
+        required: false
+        default: ''
+      context:
+        type: string
+        required: false
+        default: '.'
+    secrets:
+      aws-access-key-id:
+        required: true
+      aws-secret-access-key:
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.npm
+          node_modules
+          dist
+          .next
+          out
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.aws-access-key-id }}
+        aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+        aws-region: ${{ inputs.aws-region }}
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+    - name: Build and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        COMMIT_SHA: ${{ github.sha }}
+      run: |
+        ECR_REPOSITORY=${GITHUB_REPOSITORY#*/}
+        SHORT_COMMIT_SHA=${COMMIT_SHA:0:7}
+        
+        [[ ${{ github.ref_type }} == 'branch' ]] && IMAGE_TAG=${{ github.ref_name }}-${SHORT_COMMIT_SHA}
+        [[ ${{ github.ref_type }} == 'tag' ]] && IMAGE_TAG=${{ github.ref_name }}
+        
+        aws ecr describe-repositories --repository-names ${ECR_REPOSITORY} || aws ecr create-repository --repository-name ${ECR_REPOSITORY} --image-scanning-configuration scanOnPush=true
+        docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest || echo "latest tag not found, skipping..."
+        docker build --cache-from ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} -f ${{ inputs.dockerfile }} ${{ inputs.build-args }} ${{ inputs.context }}
+        docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+        docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+        docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+        echo "::set-output name=image::${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
