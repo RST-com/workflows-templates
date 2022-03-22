@@ -3,35 +3,38 @@ name: Kubernetes CD
 on:
   workflow_call:
     inputs:
+      version:
+        type: string
+        required: true
       environment:
         type: string
         required: true
-      eks-location:
+      aws_region:
         type: string
         required: false
         default: us-east-1
-      eks-cluster-name:
+      aws_role_arn:
         type: string
         required: true
-      role-arn:
+      eks_cluster_name:
         type: string
         required: true
-      gke-project-id:
+      gcp_project_id:
         type: string
         required: true
-      gke-cluster-name:
-        type: string
-        required: true
-      gke-location:
+      gcp_zone:
         type: string
         required: false
         default: us-east1-d
+      gke_cluster_name:
+        type: string
+        required: true
     secrets:
-      aws-access-key-id:
+      aws_access_key_id:
         required: true
-      aws-secret-access-key:
+      aws_secret_access_key:
         required: true
-      gke-sa-key:
+      gcp_service_account_key:
         required: true
 
 jobs:
@@ -47,28 +50,22 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
-        aws-access-key-id: ${{ secrets.aws-access-key-id }}
-        aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
-        aws-region: ${{ inputs.eks-location }}
+        aws-access-key-id: ${{ secrets.aws_access_key_id }}
+        aws-secret-access-key: ${{ secrets.aws_secret_access_key }}
+        aws-region: ${{ inputs.aws_region }}
     - uses: google-github-actions/auth@v0
       with:
-        project_id: ${{ inputs.gke-project-id }}
-        credentials_json: ${{ secrets.gke-sa-key }}
+        project_id: ${{ inputs.gcp_project_id }}
+        credentials_json: ${{ secrets.gcp_service_account_key }}
     - uses: google-github-actions/get-gke-credentials@v0
       with:
-        cluster_name: ${{ inputs.gke-cluster-name }}
-        location: ${{ inputs.gke-location }}
+        cluster_name: ${{ inputs.gke_cluster_name }}
+        location: ${{ inputs.gcp_zone }}
     - name: Helm upgrade
       env:
         GITHUB_REPOSITORY: ${{ github.repository }}
-        COMMIT_SHA: ${{ github.sha }}
       run: |
         RELEASE_NAME=${GITHUB_REPOSITORY#*/}
-        SHORT_COMMIT_SHA=${COMMIT_SHA:0:7}
-
-        [[ ${{ github.ref_type }} == 'branch' ]] && IMAGE_TAG=${{ github.ref_name }}-${SHORT_COMMIT_SHA}
-        [[ ${{ github.ref_type }} == 'tag' ]] && IMAGE_TAG=${{ github.ref_name }}
-        
         CHART_PATH=charts/${RELEASE_NAME}
 
         case ${{ inputs.environment }} in
@@ -87,8 +84,8 @@ jobs:
         esac
         
         # Deploy GKE
-        helm upgrade ${RELEASE_NAME} ${CHART_PATH} --create-namespace --namespace ${NAMESPACE} --install --values ${VALUES} --set provider=gcp --set image.tag=${IMAGE_TAG}
+        helm upgrade ${RELEASE_NAME} ${CHART_PATH} --create-namespace --namespace ${NAMESPACE} --install --values ${VALUES} --set provider=gcp --set image.tag=${{ inputs.version }}
         
         # Deploy EKS
-        aws eks update-kubeconfig --region ${{ inputs.eks-location }} --name ${{ inputs.eks-cluster-name }} --role-arn ${{ inputs.role-arn }}
-        helm upgrade ${RELEASE_NAME} ${CHART_PATH} --create-namespace --namespace ${NAMESPACE} --install --values ${VALUES} --set provider=aws --set image.tag=${IMAGE_TAG}
+        aws eks update-kubeconfig --region ${{ inputs.aws_region }} --name ${{ inputs.eks_cluster_name }} --role-arn ${{ inputs.aws_role_arn }}
+        helm upgrade ${RELEASE_NAME} ${CHART_PATH} --create-namespace --namespace ${NAMESPACE} --install --values ${VALUES} --set provider=aws --set image.tag=${{ inputs.version }}

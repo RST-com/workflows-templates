@@ -3,15 +3,15 @@ name: Docker CI
 on:
   workflow_call:
     inputs:
-      aws-region:
+      aws_region:
         type: string
         required: false
-        default: sa-east-1
+        default: us-east-1
       dockerfile:
         type: string
         required: false
         default: 'Dockerfile'
-      build-args:
+      build_args:
         type: string
         required: false
         default: ''
@@ -20,16 +20,23 @@ on:
         required: false
         default: '.'
     secrets:
-      aws-access-key-id:
+      aws_access_key_id:
         required: true
-      aws-secret-access-key:
+      aws_secret_access_key:
         required: true
+    outputs:
+      image_tag:
+        description: "Image tag version"
+        value: ${{ jobs.build.outputs.image_tag }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.build-image.outputs.image_tag }}
     steps:
     - uses: actions/checkout@v2
+
     - uses: actions/cache@v2
       with:
         path: |
@@ -39,15 +46,18 @@ jobs:
           .next
           out
         key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
-        aws-access-key-id: ${{ secrets.aws-access-key-id }}
-        aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
-        aws-region: ${{ inputs.aws-region }}
+        aws-access-key-id: ${{ secrets.aws_access_key_id }}
+        aws-secret-access-key: ${{ secrets.aws_secret_access_key }}
+        aws-region: ${{ inputs.aws_region }}
+
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
+
     - name: Build and push image to Amazon ECR
       id: build-image
       env:
@@ -62,9 +72,11 @@ jobs:
         [[ ${{ github.ref_type }} == 'tag' ]] && IMAGE_TAG=${{ github.ref_name }}
         
         aws ecr describe-repositories --repository-names ${ECR_REPOSITORY} || aws ecr create-repository --repository-name ${ECR_REPOSITORY} --image-scanning-configuration scanOnPush=true
+        
         docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest || echo "latest tag not found, skipping..."
-        docker build --cache-from ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} -f ${{ inputs.dockerfile }} ${{ inputs.build-args }} ${{ inputs.context }}
+        docker build --cache-from ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} -f ${{ inputs.dockerfile }} ${{ inputs.build_args }} ${{ inputs.context }}
         docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
         docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
         docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
-        echo "::set-output name=image::${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+        echo "::set-output name=image_tag::${IMAGE_TAG}"
