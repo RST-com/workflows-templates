@@ -1,32 +1,12 @@
-name: Kubernetes CD
+name: Kubernetes Deployment
 
 on:
   workflow_call:
     inputs:
-      version:
+      env:
         type: string
         required: true
-      environment:
-        type: string
-        required: true
-      aws_region:
-        type: string
-        required: false
-        default: us-east-1
-      aws_role_arn:
-        type: string
-        required: true
-      eks_cluster_name:
-        type: string
-        required: true
-      gcp_project_id:
-        type: string
-        required: true
-      gcp_zone:
-        type: string
-        required: false
-        default: us-east1-d
-      gke_cluster_name:
+      image_tags:
         type: string
         required: true
     secrets:
@@ -37,55 +17,61 @@ on:
       gcp_service_account_key:
         required: true
 
+env:
+  ENV: ${{ inputs.env }}
+  AWS_ACCOUNT_ID: 616462286528
+  AWS_REGION: us-east-1
+  ROLE_ARN_SUFFIX: AmazonEKSAdmin
+  EKS_CLUSTERS: ([dev]=k8s-sdlc-34750c77 [stage]=k8s-sdlc-34750c77 [prod]=k8s-prod-addb9393)
+  GCP_PROJECT_ID: plataforma-relacionamento
+  GCP_ZONE: us-east1-d
+  GKE_CLUSTERS: ([dev]=k8s-sdlc-37b6164a [stage]=k8s-sdlc-37b6164a [prod]=k8s-prod-c4f54ce6)
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    container:
+      image: quay.io/roboll/helmfile:v0.143.1
+    environment: ${{ inputs.env }}
     steps:
-    - uses: actions/checkout@v2
-    - uses: azure/setup-helm@v1
-      id: install
-      with:
-        version: v3.8.0
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        aws-access-key-id: ${{ secrets.aws_access_key_id }}
-        aws-secret-access-key: ${{ secrets.aws_secret_access_key }}
-        aws-region: ${{ inputs.aws_region }}
-    - uses: google-github-actions/auth@v0
-      with:
-        project_id: ${{ inputs.gcp_project_id }}
-        credentials_json: ${{ secrets.gcp_service_account_key }}
-    - uses: google-github-actions/get-gke-credentials@v0
-      with:
-        cluster_name: ${{ inputs.gke_cluster_name }}
-        location: ${{ inputs.gcp_zone }}
-    - name: Helm upgrade
-      env:
-        GITHUB_REPOSITORY: ${{ github.repository }}
-      run: |
-        RELEASE_NAME=${GITHUB_REPOSITORY#*/}
-        CHART_PATH=charts/${RELEASE_NAME}
+      - uses: actions/checkout@v2
 
-        case ${{ inputs.environment }} in
-          dev)
-            NAMESPACE=${RELEASE_NAME}-dev
-            VALUES=${CHART_PATH}/env/values.dev.yaml
-          ;;
-          stage)
-            NAMESPACE=${RELEASE_NAME}-stage
-            VALUES=${CHART_PATH}/env/values.stage.yaml
-          ;;
-          prod)
-            NAMESPACE=${RELEASE_NAME}
-            VALUES=${CHART_PATH}/env/values.prod.yaml
-          ;;
-        esac
-        
-        # Deploy GKE
-        helm upgrade ${RELEASE_NAME} ${CHART_PATH} --create-namespace --namespace ${NAMESPACE} --install --values ${VALUES} --set provider=gcp --set image.tag=${{ inputs.version }}
-        
-        # Deploy EKS
-        aws eks update-kubeconfig --region ${{ inputs.aws_region }} --name ${{ inputs.eks_cluster_name }} --role-arn ${{ inputs.aws_role_arn }}
-        helm upgrade ${RELEASE_NAME} ${CHART_PATH} --create-namespace --namespace ${NAMESPACE} --install --values ${VALUES} --set provider=aws --set image.tag=${{ inputs.version }}
+      - name: Set env
+        id: set_env
+        run: |
+          declare -A EKS_CLUSTERS GKE_CLUSTERS
+          
+          IMAGE_TAGS=(${{ inputs.image_tags }})
+
+          echo "APP_NAME=${GITHUB_REPOSITORY#*/}" >> $GITHUB_ENV
+          echo "EKS_CLUSTER_NAME=${EKS_CLUSTERS[$ENV]}" >> $GITHUB_ENV
+          echo "GKE_CLUSTER_NAME=${GKE_CLUSTERS[$ENV]}" >> $GITHUB_ENV
+          echo "ECR_REPOSITORY=${IMAGE_TAGS[0]%:*}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${IMAGE_TAGS[0]#*:}" >> $GITHUB_ENV
+
+      - uses: google-github-actions/auth@v0
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          credentials_json: ${{ secrets.gcp_service_account_key }}
+
+      - uses: google-github-actions/get-gke-credentials@v0
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER_NAME }}
+          location: ${{ env.GCP_ZONE }}
+          credentials: ${{ secrets.gcp_service_account_key }}
+
+      - name: GCP Helm upgrade
+        run: |
+          helmfile -f charts/helmfile.yaml -e gcp-${ENV} apply
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.aws_access_key_id }}
+          aws-secret-access-key: ${{ secrets.aws_secret_access_key }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: AWS Helm upgrade 
+        run: |
+          aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME} --role-arn arn:aws:iam::${AWS_ACCOUNT_ID}:role/${EKS_CLUSTER_NAME}-${ROLE_ARN_SUFFIX}
+          helmfile -f charts/helmfile.yaml -e aws-${ENV} apply
