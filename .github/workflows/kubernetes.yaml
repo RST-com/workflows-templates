@@ -22,10 +22,8 @@ env:
   AWS_ACCOUNT_ID: 616462286528
   AWS_REGION: us-east-1
   ROLE_ARN_SUFFIX: AmazonEKSAdmin
-  EKS_CLUSTERS: ([dev]=k8s-sdlc-34750c77 [stage]=k8s-sdlc-34750c77 [prod]=k8s-prod-addb9393)
   GCP_PROJECT_ID: plataforma-relacionamento
   GCP_ZONE: us-east1-d
-  GKE_CLUSTERS: ([dev]=k8s-sdlc-37b6164a [stage]=k8s-sdlc-37b6164a [prod]=k8s-prod-c4f54ce6)
 
 jobs:
   deploy:
@@ -43,6 +41,8 @@ jobs:
         id: set_env
         run: |
           declare -A EKS_CLUSTERS GKE_CLUSTERS
+          EKS_CLUSTERS=([dev]=k8s-sdlc-34750c77 [stage]=k8s-sdlc-34750c77 [prod]=k8s-prod-addb9393)
+          GKE_CLUSTERS=([dev]=k8s-sdlc-37b6164a [stage]=k8s-sdlc-37b6164a [prod]=k8s-prod-c4f54ce6)
           
           IMAGE_TAGS=(${{ inputs.image_tags }})
 
