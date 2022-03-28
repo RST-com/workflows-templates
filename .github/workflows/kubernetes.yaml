@@ -75,7 +75,10 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: false
 
-      - name: AWS Helm upgrade 
+      - name: AWS Helm upgrade
+        env:
+          KUBECONFIG: ~/.kube/config
         run: |
+          mkdir ~/.kube
           aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME} --role-arn arn:aws:iam::${AWS_ACCOUNT_ID}:role/${EKS_CLUSTER_NAME}-${ROLE_ARN_SUFFIX}
           helmfile -f charts/helmfile.yaml -e aws-${ENV} sync
