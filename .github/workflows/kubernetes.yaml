@@ -64,8 +64,10 @@ jobs:
           location: ${{ env.GCP_ZONE }}
 
       - name: GCP Helm upgrade
+        env:
+          CLOUD_PROVIDER: gcp
         run: |
-          helmfile -f charts/helmfile.yaml -e gcp-${ENV} sync
+          helmfile -f charts/helmfile.yaml -e ${ENV} sync
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -76,6 +78,8 @@ jobs:
           mask-aws-account-id: false
 
       - name: AWS Helm upgrade
+        env:
+          CLOUD_PROVIDER: aws
         run: |
           aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME} --role-arn arn:aws:iam::${AWS_ACCOUNT_ID}:role/${EKS_CLUSTER_NAME}-${ROLE_ARN_SUFFIX}
-          helmfile -f charts/helmfile.yaml -e aws-${ENV} sync
+          helmfile -f charts/helmfile.yaml -e ${ENV} sync
