@@ -89,8 +89,6 @@ jobs:
         if: ${{ ! inputs.promote_image_version }}
         with:
           context: .
-          # cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
-          # cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}
           outputs: type=docker,dest=/tmp/${{ env.ECR_REPOSITORY }}.tar
@@ -101,8 +99,8 @@ jobs:
           SRC_IMAGE_TAG=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ inputs.revision_from_branch }}-${GITHUB_SHA:0:7}
           
           docker pull ${SRC_IMAGE_TAG}
-          for IMAGE_TAG in ${{ steps.meta.outputs.tags }}; do docker tag ${SRC_IMAGE_TAG} ${IMAGE_TAG}; done
-          docker save ${{ steps.meta.outputs.tags }} -o /tmp/${{ env.ECR_REPOSITORY }}.tar
+          for IMAGE_TAG in $(echo ${{ steps.meta.outputs.tags }} | tr '\n' ' '); do docker tag ${SRC_IMAGE_TAG} ${IMAGE_TAG}; done
+          docker save $(echo ${{ steps.meta.outputs.tags }} | tr '\n' ' ') -o /tmp/${{ env.ECR_REPOSITORY }}.tar
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
