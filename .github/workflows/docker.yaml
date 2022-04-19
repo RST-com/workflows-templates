@@ -39,7 +39,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: kubernetes
     outputs:
       aws_account_id: ${{ steps.set_env.outputs.aws_account_id }}
       aws_region: ${{ steps.set_env.outputs.aws_region }}
@@ -124,7 +124,7 @@ jobs:
           retention-days: 1
           
   test:
-    runs-on: ubuntu-latest
+    runs-on: kubernetes
     needs: build
     if: ${{ !inputs.skip_tests }}
     steps:
@@ -149,7 +149,7 @@ jobs:
           target: tests
 
   release:
-    runs-on: ubuntu-latest
+    runs-on: kubernetes
     needs: build
     steps:
       - name: Checkout
